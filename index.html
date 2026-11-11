@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Engine Behind the Storm — Severe Weather Interactive</title>
+<style>
+:root{
+  --sky-deep:#081427; --sky:#0f2447; --sky-mid:#173767; --panel:#122a52; --panel-2:#0d1f40;
+  --ink:#edf4ff; --ink-dim:#a9bdda; --line:#2a4a7c;
+  --warm:#ff8a3d; --warm-2:#ffb06b; --cold:#7fc8ff; --cold-2:#c7e6ff;
+  --ok:#5ed38a; --warn:#ffd166; --bad:#ff6b6b;
+  --paper:#fbf8f1; --paper-ink:#1b2435;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;background:var(--sky-deep);color:var(--ink);line-height:1.6;font-size:17px}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit}
+h1,h2,h3{line-height:1.15;margin:0 0 .4em}
+h1{font-size:2.4rem;font-weight:800;letter-spacing:-.02em}
+h2{font-size:1.7rem;font-weight:800;letter-spacing:-.01em}
+h3{font-size:1.15rem;font-weight:700}
+p{margin:0 0 .8em}
+.hide{display:none!important}
+:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+
+/* layout */
+.app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+nav.rail{background:var(--panel-2);border-right:1px solid var(--line);padding:18px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+nav.rail .brand{font-weight:800;font-size:1rem;padding:0 8px 14px;color:var(--cold-2)}
+nav.rail button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;color:var(--ink-dim);padding:10px 10px;border-radius:9px;margin-bottom:3px}
+nav.rail button .ic{width:28px;text-align:center;font-size:1.2rem}
+nav.rail button .done{margin-left:auto;font-size:.8rem;color:var(--ok)}
+nav.rail button:hover{background:var(--panel);color:var(--ink)}
+nav.rail button.active{background:var(--sky-mid);color:var(--ink);font-weight:700}
+main{padding:28px clamp(16px,4vw,48px) 80px;max-width:1180px;min-width:0;overflow-x:hidden}
+.grid2>*{min-width:0}
+.log{overflow-x:auto}
+section.view{display:none}
+section.view.active{display:block}
+.eyebrow{color:var(--cold);font-weight:700;margin-bottom:6px}
+.lede{font-size:1.1rem;color:var(--ink-dim);max-width:62ch}
+
+/* cards and grids */
+.grid2{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:22px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:18px}
+.card.tight{padding:14px 16px}
+.card h3{color:var(--cold-2)}
+.sim{background:#050c1a;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+canvas{display:block;width:100%;height:auto}
+.controls{display:grid;gap:12px;padding:14px 16px;background:var(--panel-2);border-top:1px solid var(--line)}
+.ctl{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px 12px}
+.ctl label{font-weight:700;color:var(--cold-2)}
+.ctl .val{font-weight:800;color:var(--warm-2);min-width:70px;text-align:right}
+.ctl input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--warm)}
+.ctl select{background:var(--sky-mid);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:12px 16px 14px;background:var(--panel-2)}
+.ro{background:var(--sky);border-radius:10px;padding:8px 12px}
+.ro .k{font-size:.8rem;color:var(--ink-dim)}
+.ro .v{font-weight:800;font-size:1.15rem;color:var(--cold-2)}
+.ro.hot .v{color:var(--warm-2)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:0}
+.steps li{counter-increment:s;position:relative;padding:7px 0 7px 40px;border-bottom:1px dashed var(--line)}
+.steps li:last-child{border-bottom:0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:8px;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--warm);color:#1a0a00;font-weight:800;font-size:.9rem}
+.btn{background:var(--warm);color:#1a0a00;border:0;border-radius:10px;padding:10px 18px;font-weight:800}
+.btn:hover{background:var(--warm-2)}
+.btn.ghost{background:transparent;color:var(--cold-2);border:2px solid var(--line)}
+.btn.ghost:hover{border-color:var(--cold)}
+.btn.small{padding:7px 12px;font-size:.9rem}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.term{border-bottom:2px dotted var(--warm);font-weight:700;cursor:help}
+.vocab{display:grid;gap:8px;margin:8px 0 0}
+.vocab div{background:var(--sky);border-left:4px solid var(--warm);border-radius:8px;padding:8px 12px;font-size:.98rem}
+.vocab b{color:var(--warm-2)}
+.badge{display:inline-block;background:var(--sky-mid);border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-size:.85rem;color:var(--cold-2)}
+
+/* logs and checks */
+.log table{width:100%;border-collapse:collapse;font-size:.92rem}
+.log th,.log td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.log th{color:var(--ink-dim);font-weight:600}
+.log .empty{color:var(--ink-dim);font-style:italic}
+.q{padding:12px 0;border-top:1px solid var(--line)}
+.q:first-of-type{border-top:0}
+.q .qt{font-weight:700;margin-bottom:8px}
+.opts{display:grid;gap:6px}
+.opts button{text-align:left;background:var(--sky);color:var(--ink);border:2px solid var(--line);border-radius:9px;padding:8px 12px}
+.opts button:hover{border-color:var(--cold)}
+.opts button.pick{border-color:var(--warn)}
+.opts button.right{border-color:var(--ok);background:#153a2a}
+.opts button.wrong{border-color:var(--bad);background:#3a1a1a}
+.fb{margin-top:8px;font-size:.95rem;min-height:1.2em}
+.fb.ok{color:var(--ok)} .fb.no{color:var(--warn)}
+.score{font-weight:800;color:var(--cold-2)}
+
+/* chain builder */
+.chain{display:grid;gap:8px;margin:10px 0}
+.chain button{text-align:left;background:var(--sky);color:var(--ink);border:2px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.chain button .n{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--sky-mid);font-weight:800;flex-shrink:0}
+.chain button.set .n{background:var(--warm);color:#1a0a00}
+.chain button.set{border-color:var(--warm)}
+.chain.right button{border-color:var(--ok)}
+.chain.wrong button.set{border-color:var(--bad)}
+textarea{width:100%;min-height:150px;background:#0a1a36;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;line-height:1.5;resize:vertical}
+textarea:focus{border-color:var(--cold)}
+.frame{background:var(--sky);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:.98rem;color:var(--cold-2)}
+.bank{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.bank span{background:var(--sky-mid);border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:.9rem}
+.count{font-size:.85rem;color:var(--ink-dim);text-align:right}
+.field{display:grid;gap:4px;margin-bottom:10px}
+.field label{font-weight:700;color:var(--cold-2)}
+.field input,.field select{background:#0a1a36;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0}
+.status div{background:var(--sky);border-radius:9px;padding:8px 10px;font-size:.9rem;border-left:4px solid var(--bad)}
+.status div.ok{border-left-color:var(--ok)}
+
+/* hero */
+.hero{position:relative;border-radius:18px;overflow:hidden;background:linear-gradient(135deg,#081427 0%,#0d2b5e 40%,#1565c0 80%,#4fc3f7 100%);padding:36px clamp(18px,4vw,48px);margin-bottom:26px}
+.hero canvas{position:absolute;inset:0;width:100%;height:100%;opacity:.55}
+.hero > *{position:relative}
+.hero .tag{color:#cfe9ff;font-weight:700;margin-bottom:8px}
+.hero p.sub{font-size:1.2rem;max-width:58ch;color:#e3f2fd}
+.stations{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.stations button{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:left;color:var(--ink)}
+.stations button:hover{border-color:var(--cold)}
+.stations .ic{font-size:1.7rem;display:block;margin-bottom:4px}
+.stations b{display:block}
+.stations small{color:var(--ink-dim)}
+.notice{background:#3a1515;border:1px solid #7a2a2a;border-radius:12px;padding:12px 16px;margin-bottom:18px}
+.notice b{color:#ffb4b4}
+
+/* report */
+#reportFrame{background:var(--paper);color:var(--paper-ink);border-radius:14px;padding:28px;font-size:15px}
+#reportFrame h1,#reportFrame h2,#reportFrame h3{color:#0d2b5e}
+#reportFrame table{width:100%;border-collapse:collapse;font-size:.9rem;margin:6px 0 12px}
+#reportFrame th,#reportFrame td{border:1px solid #c9d2e3;padding:5px 8px;text-align:left}
+#reportFrame .ans{background:#fff;border:1px solid #c9d2e3;border-radius:8px;padding:10px 12px;white-space:pre-wrap;margin:6px 0 14px}
+#reportFrame .chip{display:inline-block;background:#e3f2fd;border-radius:999px;padding:2px 10px;font-size:.85rem;margin:2px}
+#reportFrame .miss{color:#b71c1c;font-weight:700}
+
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  nav.rail{position:sticky;top:0;height:auto;display:flex;gap:4px;overflow-x:auto;padding:8px;border-right:0;border-bottom:1px solid var(--line);z-index:5}
+  nav.rail .brand{display:none}
+  nav.rail button{width:auto;white-space:nowrap;padding:8px 10px;margin:0}
+  nav.rail button .label{display:none}
+  nav.rail button .done{margin-left:2px}
+  .grid2{grid-template-columns:1fr}
+  main{padding:18px 14px 60px}
+  h1{font-size:1.8rem}
+}
+@media (prefers-reduced-motion:reduce){ .hero canvas{display:none} }
+@media print{
+  body{background:#fff;color:#000}
+  nav.rail,.noprint{display:none!important}
+  .app{display:block}
+  main{padding:0;max-width:none}
+  section.view{display:none}
+  #view-report{display:block!important}
+  #reportFrame{border-radius:0;padding:0}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<nav class="rail" aria-label="Stations">
+  <div class="brand">The Engine Behind the Storm</div>
+  <button data-go="start"><span class="ic">🏁</span><span class="label">Start</span></button>
+  <button data-go="engine"><span class="ic">🔥</span><span class="label">Engine Room</span><span class="done" id="dot-engine"></span></button>
+  <button data-go="thunder"><span class="ic">⛈️</span><span class="label">Thunderstorms</span><span class="done" id="dot-thunder"></span></button>
+  <button data-go="tornado"><span class="ic">🌪️</span><span class="label">Tornadoes</span><span class="done" id="dot-tornado"></span></button>
+  <button data-go="hurricane"><span class="ic">🌀</span><span class="label">Hurricanes</span><span class="done" id="dot-hurricane"></span></button>
+  <button data-go="flood"><span class="ic">🌊</span><span class="label">Floods</span><span class="done" id="dot-flood"></span></button>
+  <button data-go="drought"><span class="ic">☀️</span><span class="label">Drought</span><span class="done" id="dot-drought"></span></button>
+  <button data-go="winter"><span class="ic">❄️</span><span class="label">Winter &amp; Lake-Effect</span><span class="done" id="dot-winter"></span></button>
+  <button data-go="wrap"><span class="ic">✍️</span><span class="label">Wrap-Up</span><span class="done" id="dot-wrap"></span></button>
+  <button data-go="report"><span class="ic">📄</span><span class="label">My Report</span></button>
+</nav>
+
+<main>
+
+<!-- ============ START ============ -->
+<section class="view active" id="view-start">
+  <div class="hero">
+    <canvas id="heroCanvas" width="1100" height="360" aria-hidden="true"></canvas>
+    <div class="tag">Dangerous Earth · Unit 3 · Day 17</div>
+    <h1>The Engine Behind the Storm</h1>
+    <p class="sub">Every kind of severe weather runs on the same two things: <b>air pressure</b> and <b>convection</b>. Today you will run each storm yourself, change the settings, and find the engine hiding inside.</p>
+  </div>
+
+  <div class="notice"><b>AI Policy: Level 0 (Red).</b> AI tools are not allowed for any part of this activity. Everything you write must be your own words, based on what you see and read here.</div>
+
+  <div class="grid2">
+    <div>
+      <div class="card">
+        <h3>How this works</h3>
+        <ol class="steps">
+          <li>Type your name and block below.</li>
+          <li>Go to the <b>Engine Room</b>. Learn the three big ideas.</li>
+          <li>Visit all six <b>Weather Labs</b>. Move the sliders. Watch what changes.</li>
+          <li>In each lab, click <b>Log this result</b> at least twice and answer the quick checks.</li>
+          <li>Do the <b>Wrap-Up</b>. Build each chain, then explain each storm in your own words.</li>
+          <li>Open <b>My Report</b>, download it, and submit it to Canvas.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>The driving question</h3>
+        <p style="font-size:1.2rem;font-weight:700;color:var(--cold-2)">How do we stay safe when the sky turns deadly?</p>
+        <p class="lede">Yesterday you learned <em>what</em> the hazards are. Today you learn <em>why</em> they happen.</p>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Who is running the storms?</h3>
+        <div class="field"><label for="stuName">Your name</label><input id="stuName" placeholder="First and last name" autocomplete="off"></div>
+        <div class="field"><label for="stuBlock">Block</label>
+          <select id="stuBlock"><option value="">Choose your block</option><option>1A</option><option>1B</option><option>2A</option><option>2B</option><option>3A</option><option>3B</option><option>4A</option><option>4B</option></select></div>
+        <p style="font-size:.9rem;color:var(--ink-dim)">Your work saves in this browser as you go. Use the same computer to finish.</p>
+        <button class="btn" data-go="engine">Start in the Engine Room</button>
+      </div>
+      <div class="card tight">
+        <h3>Stations</h3>
+        <div class="stations" id="stationGrid"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ENGINE ROOM ============ -->
+<section class="view" id="view-engine">
+  <div class="eyebrow">Station 1</div>
+  <h2>The Engine Room</h2>
+  <p class="lede">Three ideas power every storm. Heat the ground and watch air start to move.</p>
+  <div class="grid2">
+    <div>
+      <div class="sim">
+        <canvas id="cv-engine" width="720" height="400"></canvas>
+        <div class="controls">
+          <div class="ctl"><label for="eng-heat">Sun heating the ground</label><span class="val" id="eng-heat-v">0</span><input type="range" id="eng-heat" min="0" max="100" value="0"></div>
+          <div class="ctl"><label for="eng-moist">Moisture in the air</label><span class="val" id="eng-moist-v">30%</span><input type="range" id="eng-moist" min="0" max="100" value="30"></div>
+        </div>
+        <div class="readouts">
+          <div class="ro hot"><div class="k">Warm air</div><div class="v" id="eng-ro1">Still</div></div>
+          <div class="ro"><div class="k">Surface pressure (left)</div><div class="v" id="eng-ro2">Normal</div></div>
+          <div class="ro"><div class="k">Wind</div><div class="v" id="eng-ro3">Calm</div></div>
+          <div class="ro"><div class="k">Clouds</div><div class="v" id="eng-ro4">None</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Try this</h3>
+        <ol class="steps">
+          <li>Slide <b>Sun heating</b> to 0. Watch the air. Does it move?</li>
+          <li>Slide heating up slowly. Watch the red dots. Which way do they go?</li>
+          <li>Look at the ground under the warm air. What does the pressure say?</li>
+          <li>Turn heating to 100. Then raise the moisture. What forms at the top?</li>
+        </ol>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Big idea 1: Warm air rises</h3>
+        <p>Heat air and its molecules speed up and spread out. The air gets <span class="term" title="Less stuff packed into the same space">less dense</span>. Less dense air is lighter. It <b>rises</b>.</p>
+        <p>Cool air is the opposite. It gets <b>more dense</b>. It is heavier. It <b>sinks</b>.</p>
+      </div>
+      <div class="card">
+        <h3>Big idea 2: Pressure makes wind</h3>
+        <p>Where warm air rises, it leaves <b>low pressure</b> at the ground. Fewer molecules press down.</p>
+        <p>Where cool air sinks, it piles up. That is <b>high pressure</b>.</p>
+        <p>Air always flows from <b>high</b> pressure to <b>low</b> pressure. That flow is <b>wind</b>. A bigger pressure difference means stronger wind.</p>
+      </div>
+      <div class="card">
+        <h3>Big idea 3: Convection and latent heat</h3>
+        <p>A <b>convection current</b> is a loop. Warm air rises. It cools at the top. It sinks. It gets heated again. The loop keeps going as long as there is heat at the bottom.</p>
+        <p>Rising air cools. Water vapor in it <span class="term" title="Changes from a gas to tiny liquid drops">condenses</span> into clouds. Condensing releases <b>latent heat</b>. That heat makes the air rise even faster. A storm is a convection loop stuck in overdrive.</p>
+      </div>
+      <div class="card">
+        <h3>Quick check</h3>
+        <div id="chk-engine"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THUNDER ============ -->
+<section class="view" id="view-thunder">
+  <div class="eyebrow">Weather Lab 1</div>
+  <h2>Thunderstorms</h2>
+  <p class="lede">The purest convection on Earth. Heat the ground, add moisture, and build an updraft.</p>
+  <div class="grid2">
+    <div>
+      <div class="sim">
+        <canvas id="cv-thunder" width="720" height="400"></canvas>
+        <div class="controls">
+          <div class="ctl"><label for="th-temp">Ground temperature</label><span class="val" id="th-temp-v">20°C</span><input type="range" id="th-temp" min="5" max="40" value="20"></div>
+          <div class="ctl"><label for="th-hum">Humidity (moisture in air)</label><span class="val" id="th-hum-v">40%</span><input type="range" id="th-hum" min="10" max="100" value="40"></div>
+        </div>
+        <div class="readouts">
+          <div class="ro hot"><div class="k">Updraft speed</div><div class="v" id="th-ro1">—</div></div>
+          <div class="ro"><div class="k">Surface pressure</div><div class="v" id="th-ro2">—</div></div>
+          <div class="ro"><div class="k">Latent heat released</div><div class="v" id="th-ro3">—</div></div>
+          <div class="ro"><div class="k">Result</div><div class="v" id="th-ro4">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Try this</h3>
+        <ol class="steps">
+          <li>Set temperature to 10°C and humidity to 20%. Log this result.</li>
+          <li>Raise only the temperature to 38°C. Watch the updraft. Log it.</li>
+          <li>Now raise humidity to 90%. What do you see at the top of the cloud? Log it.</li>
+          <li>Find the lowest settings that still make a thunderstorm.</li>
+        </ol>
+        <div class="row" style="margin-top:10px"><button class="btn" data-log="thunder">Log this result</button></div>
+      </div>
+      <div class="card log" id="log-thunder"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>What is happening</h3>
+        <p>On a hot, humid day the sun heats the ground. The air near the ground warms up. It gets less dense. It shoots upward. That is the <b>updraft</b>.</p>
+        <p>As the air rises it cools. Its water vapor condenses into cloud. Condensing releases <b>latent heat</b>. That heat pushes the updraft even harder.</p>
+        <p>The rising air leaves <b>low pressure</b> at the ground. Air rushes in from all sides to fill the gap. That inflow feeds the storm. Taller, faster updraft means a more violent storm.</p>
+        <div class="vocab">
+          <div><b>updraft</b>: a column of air moving up fast</div>
+          <div><b>latent heat</b>: heat released when water vapor condenses</div>
+          <div><b>anvil</b>: the flat top of a tall storm cloud</div>
+        </div>
+      </div>
+      <div class="card"><h3>Quick check</h3><div id="chk-thunder"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TORNADO ============ -->
+<section class="view" id="view-tornado">
+  <div class="eyebrow">Weather Lab 2</div>
+  <h2>Tornadoes</h2>
+  <p class="lede">Take a thunderstorm updraft and make it spin. Then tighten the spin and watch the pressure drop.</p>
+  <div class="grid2">
+    <div>
+      <div class="sim">
+        <canvas id="cv-tornado" width="720" height="400"></canvas>
+        <div class="controls">
+          <div class="ctl"><label for="to-shear">Wind shear (wind changes with height)</label><span class="val" id="to-shear-v">0</span><input type="range" id="to-shear" min="0" max="100" value="0"></div>
+          <div class="ctl"><label for="to-tight">Tighten the spin (narrow the column)</label><span class="val" id="to-tight-v">Wide</span><input type="range" id="to-tight" min="0" max="100" value="0"></div>
+        </div>
+        <div class="readouts">
+          <div class="ro"><div class="k">Rotation</div><div class="v" id="to-ro1">—</div></div>
+          <div class="ro"><div class="k">Core pressure</div><div class="v" id="to-ro2">—</div></div>
+          <div class="ro hot"><div class="k">Wind speed</div><div class="v" id="to-ro3">—</div></div>
+          <div class="ro"><div class="k">Result</div><div class="v" id="to-ro4">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Try this</h3>
+        <ol class="steps">
+          <li>Set wind shear to 0. Does the updraft spin? Log it.</li>
+          <li>Raise wind shear to 70. Watch the column start to turn. Log it.</li>
+          <li>Keep shear at 70. Slide <b>Tighten the spin</b> all the way up. Watch the wind speed and core pressure. Log it.</li>
+          <li>Try shear at 100 and tighten at 100. What is the strongest tornado you can make?</li>
+        </ol>
+        <div class="row" style="margin-top:10px"><button class="btn" data-log="tornado">Log this result</button></div>
+      </div>
+      <div class="card log" id="log-tornado"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>What is happening</h3>
+        <p>Tornadoes form inside <b>supercells</b>, the strongest thunderstorms. Wind that changes speed and direction with height is called <b>wind shear</b>. Shear makes the rising air start to rotate. A rotating updraft is a <b>mesocyclone</b>.</p>
+        <p>The spinning column stretches down toward the ground. As it tightens, the pressure in the middle drops very low. Air rushes in toward that low-pressure core. The closer it gets, the faster it spins, like a skater pulling in their arms.</p>
+        <div class="vocab">
+          <div><b>wind shear</b>: wind speed or direction changing as you go up</div>
+          <div><b>mesocyclone</b>: a rotating updraft inside a supercell</div>
+          <div><b>core</b>: the center of the spinning column; the lowest pressure</div>
+        </div>
+      </div>
+      <div class="card"><h3>Quick check</h3><div id="chk-tornado"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HURRICANE ============ -->
+<section class="view" id="view-hurricane">
+  <div class="eyebrow">Weather Lab 3</div>
+  <h2>Hurricanes</h2>
+  <p class="lede">A convection engine hundreds of miles wide. Its fuel is warm ocean water. Take the fuel away and see what happens.</p>
+  <div class="grid2">
+    <div>
+      <div class="sim">
+        <canvas id="cv-hurricane" width="720" height="400"></canvas>
+        <div class="controls">
+          <div class="ctl"><label for="hu-sst">Ocean surface temperature</label><span class="val" id="hu-sst-v">28°C</span><input type="range" id="hu-sst" min="20" max="32" value="28"></div>
+          <div class="ctl"><label for="hu-where">Where is the storm?</label>
+            <select id="hu-where"><option value="ocean">Over the warm ocean</option><option value="cool">Over cooler water</option><option value="land">Over land</option></select></div>
+          <div class="row"><button class="btn ghost small" id="hu-reset">Reset storm</button></div>
+        </div>
+        <div class="readouts">
+          <div class="ro"><div class="k">Fuel (evaporation)</div><div class="v" id="hu-ro1">—</div></div>
+          <div class="ro"><div class="k">Eye pressure</div><div class="v" id="hu-ro2">—</div></div>
+          <div class="ro hot"><div class="k">Wind speed</div><div class="v" id="hu-ro3">—</div></div>
+          <div class="ro"><div class="k">Strength</div><div class="v" id="hu-ro4">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Try this</h3>
+        <ol class="steps">
+          <li>Set the ocean to 24°C. Keep it over the ocean. Wait 10 seconds. Log it.</li>
+          <li>Set the ocean to 30°C. Wait for the storm to grow. Log it.</li>
+          <li>Now move the storm <b>over land</b>. Watch the wind speed. Log it.</li>
+          <li>Reset. Try 26°C. Is that enough to grow a hurricane?</li>
+        </ol>
+        <div class="row" style="margin-top:10px"><button class="btn" data-log="hurricane">Log this result</button></div>
+      </div>
+      <div class="card log" id="log-hurricane"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>What is happening</h3>
+        <p>When ocean water is at least <b>26°C (79°F)</b>, it evaporates fast. The air above it fills with warm moisture. That air rises in huge columns. A deep area of <b>low pressure</b> forms at the surface.</p>
+        <p>Air spirals in toward the center. It spins faster as it gets closer. The center is the <b>eye</b>. Air sinks there, so it is calm. The ring around the eye, the <b>eyewall</b>, has the strongest convection and the strongest winds.</p>
+        <p>Over cool water or land, the fuel is gone. The storm weakens.</p>
+        <div class="vocab">
+          <div><b>eye</b>: the calm center where air sinks</div>
+          <div><b>eyewall</b>: the ring of strongest wind and rising air</div>
+          <div><b>evaporation</b>: liquid water turning into vapor (gas)</div>
+        </div>
+      </div>
+      <div class="card"><h3>Quick check</h3><div id="chk-hurricane"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FLOOD ============ -->
+<section class="view" id="view-flood">
+  <div class="eyebrow">Weather Lab 4</div>
+  <h2>Floods</h2>
+  <p class="lede">Floods do not have their own engine. They happen when storms keep dumping rain on the same place.</p>
+  <div class="grid2">
+    <div>
+      <div class="sim">
+        <canvas id="cv-flood" width="720" height="400"></canvas>
+        <div class="controls">
+          <div class="ctl"><label for="fl-rain">Rain intensity</label><span class="val" id="fl-rain-v">Light</span><input type="range" id="fl-rain" min="1" max="4" value="1"></div>
+          <div class="ctl"><label for="fl-hours">How long the low-pressure system stays</label><span class="val" id="fl-hours-v">6 hours</span><input type="range" id="fl-hours" min="1" max="72" value="6"></div>
+          <div class="ctl"><label for="fl-ground">Ground type</label>
+            <select id="fl-ground"><option value="forest">Forest soil (soaks fast)</option><option value="farm">Farm field</option><option value="city">City pavement (no soaking)</option></select></div>
+          <div class="row"><button class="btn small" id="fl-run">Run the storm</button><button class="btn ghost small" id="fl-reset">Reset</button></div>
+        </div>
+        <div class="readouts">
+          <div class="ro"><div class="k">Time</div><div class="v" id="fl-ro1">0 h</div></div>
+          <div class="ro"><div class="k">Water soaked in</div><div class="v" id="fl-ro2">—</div></div>
+          <div class="ro hot"><div class="k">Stream level</div><div class="v" id="fl-ro3">—</div></div>
+          <div class="ro"><div class="k">Result</div><div class="v" id="fl-ro4">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Try this</h3>
+        <ol class="steps">
+          <li>Set rain to <b>Extreme</b>, time to 3 hours, ground to <b>City pavement</b>. Run it. Log it.</li>
+          <li>Reset. Same rain and time, but ground = <b>Forest soil</b>. Run it. Log it.</li>
+          <li>Reset. Set rain to <b>Moderate</b> and time to 60 hours. Run it. Log it.</li>
+          <li>Compare: which one flooded fastest? Which one flooded after a long time?</li>
+        </ol>
+        <div class="row" style="margin-top:10px"><button class="btn" data-log="flood">Log this result</button></div>
+      </div>
+      <div class="card log" id="log-flood"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>What is happening</h3>
+        <p>A <b>low-pressure system</b> keeps pulling in warm, moist air. That feeds convection and rain over the same spot, again and again.</p>
+        <p>A <b>flash flood</b> happens when a strong convective storm drops a huge amount of rain fast. The ground cannot soak it up. The water runs off into streams in minutes.</p>
+        <p>A <b>river flood</b> builds slowly. A low-pressure system sends storm after storm over the same area for days. The rivers fill up past what they can hold.</p>
+        <div class="vocab">
+          <div><b>runoff</b>: rain water that flows over the ground instead of soaking in</div>
+          <div><b>watershed</b>: all the land that drains into one river</div>
+        </div>
+      </div>
+      <div class="card"><h3>Quick check</h3><div id="chk-flood"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DROUGHT ============ -->
+<section class="view" id="view-drought">
+  <div class="eyebrow">Weather Lab 5</div>
+  <h2>Drought</h2>
+  <p class="lede">The flip side of a thunderstorm. High pressure sits on a region and shuts the convection engine off.</p>
+  <div class="grid2">
+    <div>
+      <div class="sim">
+        <canvas id="cv-drought" width="720" height="400"></canvas>
+        <div class="controls">
+          <div class="ctl"><label for="dr-days">Days under the high-pressure dome</label><span class="val" id="dr-days-v">0 days</span><input type="range" id="dr-days" min="0" max="90" value="0"></div>
+          <div class="ctl"><label for="dr-strength">Strength of the high pressure</label><span class="val" id="dr-strength-v">Weak</span><input type="range" id="dr-strength" min="1" max="3" value="2"></div>
+        </div>
+        <div class="readouts">
+          <div class="ro"><div class="k">Air motion</div><div class="v" id="dr-ro1">—</div></div>
+          <div class="ro"><div class="k">Clouds forming?</div><div class="v" id="dr-ro2">—</div></div>
+          <div class="ro hot"><div class="k">Soil moisture</div><div class="v" id="dr-ro3">—</div></div>
+          <div class="ro"><div class="k">Result</div><div class="v" id="dr-ro4">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Try this</h3>
+        <ol class="steps">
+          <li>Set days to 0. Watch the air arrows. Which way do they point? Log it.</li>
+          <li>Slide to 20 days. Watch the soil and plants. Log it.</li>
+          <li>Slide to 75 days with a <b>Strong</b> dome. Log it.</li>
+          <li>Try a Weak dome for 75 days. Is it different?</li>
+        </ol>
+        <div class="row" style="margin-top:10px"><button class="btn" data-log="drought">Log this result</button></div>
+      </div>
+      <div class="card log" id="log-drought"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>What is happening</h3>
+        <p>In a <b>high-pressure system</b>, air is sinking, not rising. Sinking air squeezes together and warms up. Warm, sinking air dries out moisture instead of letting it condense.</p>
+        <p>No rising air means no convection. No convection means no clouds and no rain. Just clear skies and sun, day after day.</p>
+        <p>The longer the high-pressure <b>dome</b> stays, the drier the land gets. That is a drought: a convection shutdown.</p>
+        <div class="vocab">
+          <div><b>dome</b>: a big, stuck area of high pressure</div>
+          <div><b>suppress</b>: to hold down or stop something</div>
+        </div>
+      </div>
+      <div class="card"><h3>Quick check</h3><div id="chk-drought"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WINTER ============ -->
+<section class="view" id="view-winter">
+  <div class="eyebrow">Weather Lab 6</div>
+  <h2>Winter Weather &amp; Lake-Effect Snow</h2>
+  <p class="lede">Michigan's own storm. Cold Arctic air crosses a warm lake and a small convection engine turns on.</p>
+  <div class="grid2">
+    <div>
+      <div class="sim">
+        <canvas id="cv-winter" width="720" height="400"></canvas>
+        <div class="controls">
+          <div class="ctl"><label for="wi-air">Arctic air temperature</label><span class="val" id="wi-air-v">-5°C</span><input type="range" id="wi-air" min="-25" max="5" value="-5"></div>
+          <div class="ctl"><label for="wi-lake">Lake water temperature</label><span class="val" id="wi-lake-v">6°C</span><input type="range" id="wi-lake" min="0" max="12" value="6"></div>
+          <div class="ctl"><label for="wi-wind">Wind across the lake</label><span class="val" id="wi-wind-v">20 mph</span><input type="range" id="wi-wind" min="0" max="50" value="20"></div>
+        </div>
+        <div class="readouts">
+          <div class="ro hot"><div class="k">Lake minus air</div><div class="v" id="wi-ro1">—</div></div>
+          <div class="ro"><div class="k">Air over the lake</div><div class="v" id="wi-ro2">—</div></div>
+          <div class="ro"><div class="k">Snow rate (downwind)</div><div class="v" id="wi-ro3">—</div></div>
+          <div class="ro"><div class="k">Result</div><div class="v" id="wi-ro4">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Try this</h3>
+        <ol class="steps">
+          <li>Set air to 2°C and lake to 4°C. Is there snow? Log it.</li>
+          <li>Drop the air to -15°C. Keep the lake at 6°C. Log it.</li>
+          <li>Set wind to 0. What happens to the snow bands? Log it.</li>
+          <li>Find the air temperature where snow first starts (lake at 6°C, wind 20).</li>
+        </ol>
+        <div class="row" style="margin-top:10px"><button class="btn" data-log="winter">Log this result</button></div>
+      </div>
+      <div class="card log" id="log-winter"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>What is happening</h3>
+        <p>Winter storms come from big <b>pressure differences</b>. Cold Arctic air is dense and sinking (high pressure). Warmer air to the south has lower pressure. When a strong low pulls the cold air south, the two air masses crash together. That makes heavy snow, ice, and blizzards.</p>
+        <p><b>Lake-effect snow</b> is a tiny convection story. Cold, dense air blows over the warm Great Lakes. The lake heats the air above it. That warmed, moist air <b>rises</b>. It cools, condenses, and freezes. Narrow bands of heavy snow fall on the <b>downwind</b> shore. Same physics as a thunderstorm, with ice instead of rain.</p>
+        <div class="vocab">
+          <div><b>air mass</b>: a huge blob of air with one temperature</div>
+          <div><b>downwind</b>: the side the wind blows toward</div>
+          <div><b>pressure gradient</b>: how fast pressure changes from place to place</div>
+        </div>
+      </div>
+      <div class="card"><h3>Quick check</h3><div id="chk-winter"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WRAP-UP ============ -->
+<section class="view" id="view-wrap">
+  <div class="eyebrow">Wrap-Up</div>
+  <h2>Show what you know</h2>
+  <p class="lede">For each hazard: first put the chain of events in order. Then explain the storm in your own words. Use what you saw in the labs. The sentence frame and word bank are there to help you get started.</p>
+  <div class="notice"><b>Your own words only.</b> Level 0 (Red) AI policy. Write what you saw and what you understand. Short, clear sentences are great.</div>
+  <div id="wrapList"></div>
+  <div class="card">
+    <h3>The big picture: Michigan</h3>
+    <p>Which severe weather hazard do you think is the <b>biggest danger here in Michigan</b>?</p>
+    <div class="field"><label for="bigHazard">Step 1: Pick one hazard</label>
+      <select id="bigHazard"><option value="">Choose a hazard</option><option>Thunderstorms</option><option>Tornadoes</option><option>Hurricanes</option><option>Floods</option><option>Drought</option><option>Winter weather and lake-effect snow</option></select></div>
+    <div class="field"><label for="bigEngine">Step 2: What is its main engine?</label>
+      <select id="bigEngine"><option value="">Choose one</option><option>Low pressure pulling air in</option><option>High pressure pushing air down</option><option>Convection (warm air rising)</option><option>Both pressure and convection</option></select></div>
+    <div class="field"><label for="bigWhy">Step 3: Explain your choice. Why is it dangerous here, and how does its engine work?</label>
+      <div class="frame">I think ___ is the biggest danger in Michigan because ___. Its engine is ___. It works like this: ___.</div>
+      <textarea id="bigWhy" placeholder="Write at least 3 sentences."></textarea><div class="count" id="bigWhy-c"></div></div>
+  </div>
+  <div class="row"><button class="btn" data-go="report">Build my report</button></div>
+</section>
+
+<!-- ============ REPORT ============ -->
+<section class="view" id="view-report">
+  <div class="eyebrow noprint">Finish</div>
+  <h2 class="noprint">My Report</h2>
+  <div class="card noprint">
+    <h3>Before you submit</h3>
+    <div class="status" id="statusGrid"></div>
+    <label style="display:flex;gap:10px;align-items:flex-start;margin:10px 0"><input type="checkbox" id="honor"> <span>I wrote all of my explanations myself. I did not use AI tools or copy from a classmate.</span></label>
+    <div class="row">
+      <button class="btn" id="btnDownload">Download report (HTML file)</button>
+      <button class="btn ghost" id="btnPrint">Print or save as PDF</button>
+      <button class="btn ghost" id="btnCopy">Copy report as text</button>
+      <button class="btn ghost" id="btnClear">Start over (erase my work)</button>
+    </div>
+    <p style="font-size:.9rem;color:var(--ink-dim);margin-top:10px">Submit the downloaded file (or the PDF) to the Day 17 Canvas assignment.</p>
+  </div>
+  <div id="reportFrame"></div>
+</section>
+
+</main>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ---------------- state ---------------- */
+var KEY='stormEngine_v1';
+var LABS=['thunder','tornado','hurricane','flood','drought','winter'];
+var NAMES={engine:'Engine Room',thunder:'Thunderstorms',tornado:'Tornadoes',hurricane:'Hurricanes',flood:'Floods',drought:'Drought',winter:'Winter weather & lake-effect snow'};
+var S={name:'',block:'',checks:{},logs:{},chains:{},writes:{},big:{hazard:'',engine:'',why:''},honor:false};
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+function load(){try{var r=localStorage.getItem(KEY);if(r){var o=JSON.parse(r);for(var k in o)S[k]=o[k];}}catch(e){}}
+load();
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+/* ---------------- navigation ---------------- */
+var current='start';
+function go(id){
+  current=id;
+  document.querySelectorAll('section.view').forEach(function(s){s.classList.toggle('active',s.id==='view-'+id);});
+  document.querySelectorAll('nav.rail button').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-go')===id);});
+  window.scrollTo({top:0,behavior:'auto'});
+  if(id==='report')buildReport();
+  if(id==='wrap')renderWrap();
+  if(SIMS[id]&&SIMS[id].resize)SIMS[id].resize();
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('[data-go]');if(b){go(b.getAttribute('data-go'));}
+  var l=e.target.closest('[data-log]');if(l){logResult(l.getAttribute('data-log'));}
+});
+var stations=[['engine','🔥','Engine Room','pressure, density, convection'],['thunder','⛈️','Thunderstorms','build an updraft'],['tornado','🌪️','Tornadoes','spin and tighten'],['hurricane','🌀','Hurricanes','fuel from warm water'],['flood','🌊','Floods','rain on the same spot'],['drought','☀️','Drought','high pressure shuts it off'],['winter','❄️','Lake-Effect','cold air, warm lake'],['wrap','✍️','Wrap-Up','explain each storm']];
+$('stationGrid').innerHTML=stations.map(function(s){return '<button data-go="'+s[0]+'"><span class="ic">'+s[1]+'</span><b>'+s[2]+'</b><small>'+s[3]+'</small></button>';}).join('');
+
+$('stuName').value=S.name;$('stuBlock').value=S.block;
+$('stuName').addEventListener('input',function(){S.name=this.value;save();});
+$('stuBlock').addEventListener('change',function(){S.block=this.value;save();});
+
+/* ---------------- quick checks ---------------- */
+var CHECKS={
+ engine:[
+  {q:'Warm air is ___ than cool air.',o:['less dense (lighter)','more dense (heavier)'],a:0,fb:'Heat spreads the molecules out. Warm air is less dense, so it rises.'},
+  {q:'Where warm air rises, the ground has ___ pressure.',o:['high','low'],a:1,fb:'Rising air leaves fewer molecules pressing down. That is low pressure.'},
+  {q:'Wind blows from ___.',o:['high pressure to low pressure','low pressure to high pressure'],a:0,fb:'Air always flows from high to low. A bigger difference makes stronger wind.'}],
+ thunder:[
+  {q:'What made the updraft strongest in the lab?',o:['Hot ground and high humidity','Cold ground and dry air','Low humidity only'],a:0,fb:'Warm, moist air rises fastest and releases the most latent heat.'},
+  {q:'True or false: Condensing water vapor releases latent heat that makes air rise faster.',o:['True','False'],a:0,fb:'That feedback loop is what powers the strongest storms.'},
+  {q:'The rising air leaves ___ pressure at the ground, pulling more air in.',o:['low','high'],a:0,fb:'Low pressure at the surface pulls in air from all sides to feed the storm.'}],
+ tornado:[
+  {q:'What makes the updraft start to spin?',o:['Wind shear','Rain','Sunlight'],a:0,fb:'Wind shear (wind changing with height) rolls the rising air into a rotation.'},
+  {q:'When the spinning column gets tighter, the wind ___.',o:['slows down','speeds up','stays the same'],a:1,fb:'Like a skater pulling in their arms, the air spins faster as it gets closer to the core.'},
+  {q:'The pressure in a tornado core is ___.',o:['very high','very low'],a:1,fb:'Some of the lowest pressures ever measured at the surface are inside tornadoes.'}],
+ hurricane:[
+  {q:'What is a hurricane\u2019s fuel?',o:['Warm ocean water','Cold mountain air','Dry desert air'],a:0,fb:'Warm water evaporates fast and loads the air with warm moisture.'},
+  {q:'The ocean needs to be at least ___ to grow a hurricane.',o:['10°C','26°C','40°C'],a:1,fb:'About 26°C (79°F). Below that, the storm cannot keep growing.'},
+  {q:'When a hurricane moves over land it ___.',o:['gets stronger','weakens because it lost its fuel','stays the same'],a:1,fb:'No warm water means no fuel for the convection engine.'},
+  {q:'True or false: In the eye, air is sinking and the weather is calm.',o:['True','False'],a:0,fb:'Sinking air in the eye makes the calm center. The eyewall around it is the most violent part.'}],
+ flood:[
+  {q:'A flash flood is caused by ___.',o:['a lot of rain falling fast','light rain for many weeks'],a:0,fb:'A strong convective storm dumps more rain than the ground can soak up.'},
+  {q:'A slow river flood builds ___.',o:['in minutes','over days or weeks'],a:1,fb:'A stuck low-pressure system sends storm after storm over the same watershed.'},
+  {q:'Rain soaks in faster on ___.',o:['city pavement','forest soil'],a:1,fb:'Pavement cannot soak up water, so it all runs off into the streams.'}],
+ drought:[
+  {q:'Under high pressure, air is ___.',o:['rising','sinking'],a:1,fb:'Sinking air warms up and dries out. No rising air means no convection.'},
+  {q:'Sinking, warming air ___.',o:['makes clouds','stops clouds from forming'],a:1,fb:'Clouds need rising air that cools and condenses. High pressure blocks that.'},
+  {q:'True or false: Drought is the flip side of a thunderstorm.',o:['True','False'],a:0,fb:'A thunderstorm is convection in overdrive. A drought is convection switched off.'}],
+ winter:[
+  {q:'In lake-effect snow, what is the heat source?',o:['The warm lake water','The cold Arctic air','The snow'],a:0,fb:'The lake is warmer than the air above it, so it heats the air from below.'},
+  {q:'What rises over the lake?',o:['Warmed, moist air','Cold, dense air','Ice'],a:0,fb:'The lake warms the air. Warm, moist air rises, cools, and condenses.'},
+  {q:'The heavy snow falls on the ___ shore.',o:['upwind','downwind'],a:1,fb:'The wind carries the rising, snow-filled bands across the lake to the far shore.'},
+  {q:'Big winter storms start with ___.',o:['a big pressure difference between cold and warm air masses','a lack of wind'],a:0,fb:'A strong low pulls cold Arctic air south into warmer air. The crash makes snow and ice.'}]
+};
+function renderChecks(id){
+  var box=$('chk-'+id);if(!box)return;
+  var ans=S.checks[id]||[];var html='';
+  CHECKS[id].forEach(function(c,i){
+    var picked=ans[i];
+    html+='<div class="q"><div class="qt">'+(i+1)+'. '+esc(c.q)+'</div><div class="opts">';
+    c.o.forEach(function(o,j){
+      var cls='';if(picked!=null){if(j===c.a)cls='right';else if(j===picked)cls='wrong';}
+      html+='<button data-chk="'+id+'" data-i="'+i+'" data-j="'+j+'" class="'+cls+'" '+(picked!=null?'disabled':'')+'>'+esc(o)+'</button>';
+    });
+    html+='</div><div class="fb '+(picked==null?'':(picked===c.a?'ok':'no'))+'">'+(picked==null?'':(picked===c.a?'Correct. ':'Not quite. ')+esc(c.fb))+'</div></div>';
+  });
+  var done=ans.filter(function(x){return x!=null;}).length;
+  var right=ans.filter(function(x,i){return x===CHECKS[id][i].a;}).length;
+  html+='<p class="score">Answered '+done+' of '+CHECKS[id].length+' · Correct on first try: '+right+'</p>';
+  box.innerHTML=html;updateDots();
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('[data-chk]');if(!b)return;
+  var id=b.getAttribute('data-chk'),i=+b.getAttribute('data-i'),j=+b.getAttribute('data-j');
+  S.checks[id]=S.checks[id]||[];if(S.checks[id][i]!=null)return;
+  S.checks[id][i]=j;save();renderChecks(id);
+});
+Object.keys(CHECKS).forEach(renderChecks);
+
+/* ---------------- logs ---------------- */
+function logResult(id){
+  var sim=SIMS[id];if(!sim)return;
+  var row=sim.snapshot();
+  S.logs[id]=S.logs[id]||[];S.logs[id].push(row);
+  if(S.logs[id].length>8)S.logs[id].shift();
+  save();renderLog(id);
+}
+function renderLog(id){
+  var box=$('log-'+id);if(!box)return;
+  var rows=S.logs[id]||[];
+  var html='<h3>Lab log</h3>';
+  if(!rows.length){html+='<p class="empty">No results yet. Change the sliders, then click Log this result.</p>';}
+  else{
+    var keys=Object.keys(rows[0]);
+    html+='<table><tr><th>#</th>'+keys.map(function(k){return '<th>'+esc(k)+'</th>';}).join('')+'</tr>';
+    rows.forEach(function(r,i){html+='<tr><td>'+(i+1)+'</td>'+keys.map(function(k){return '<td>'+esc(r[k])+'</td>';}).join('')+'</tr>';});
+    html+='</table>';
+  }
+  html+='<div class="row" style="margin-top:8px"><button class="btn ghost small" data-clearlog="'+id+'">Clear log</button></div>';
+  box.innerHTML=html;updateDots();
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('[data-clearlog]');if(!b)return;
+  var id=b.getAttribute('data-clearlog');S.logs[id]=[];save();renderLog(id);
+});
+LABS.forEach(renderLog);
+
+/* ---------------- progress dots ---------------- */
+function labDone(id){
+  var c=(S.checks[id]||[]).filter(function(x){return x!=null;}).length>=CHECKS[id].length;
+  if(id==='engine')return c;
+  return c&&(S.logs[id]||[]).length>=2;
+}
+function wrapDone(){
+  return LABS.every(function(id){return S.chains[id]&&S.chains[id].ok&&(S.writes[id]||'').trim().length>=60;})&&S.big.hazard&&S.big.engine&&S.big.why.trim().length>=60;
+}
+function updateDots(){
+  ['engine'].concat(LABS).forEach(function(id){var d=$('dot-'+id);if(d)d.textContent=labDone(id)?'✓':'';});
+  var w=$('dot-wrap');if(w)w.textContent=wrapDone()?'✓':'';
+}
+
+/* ---------------- canvas helper ---------------- */
+function mkCanvas(id,W,H){
+  var cv=$(id),ctx=cv.getContext('2d');
+  cv.width=W;cv.height=H;
+  return {cv:cv,ctx:ctx,W:W,H:H};
+}
+function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function arrow(ctx,x1,y1,x2,y2,col,w){
+  ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=w||2;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  var a=Math.atan2(y2-y1,x2-x1),s=6+(w||2)*1.5;
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-s*Math.cos(a-.5),y2-s*Math.sin(a-.5));ctx.lineTo(x2-s*Math.cos(a+.5),y2-s*Math.sin(a+.5));ctx.closePath();ctx.fill();
+}
+function label(ctx,t,x,y,col,size,align){ctx.fillStyle=col;ctx.font='bold '+(size||14)+'px "Segoe UI",system-ui,sans-serif';ctx.textAlign=align||'left';ctx.fillText(t,x,y);}
+function cloud(ctx,x,y,w,h,col){ctx.fillStyle=col;ctx.beginPath();ctx.ellipse(x,y,w*.5,h*.5,0,0,Math.PI*2);ctx.ellipse(x-w*.3,y+h*.1,w*.3,h*.4,0,0,Math.PI*2);ctx.ellipse(x+w*.3,y+h*.1,w*.3,h*.4,0,0,Math.PI*2);ctx.fill();}
+function sky(ctx,W,H,top,bot){var g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,top);g.addColorStop(1,bot);ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+function bindRange(id,fmt,cb){var el=$(id),v=$(id+'-v');function u(){v.textContent=fmt(+el.value);if(cb)cb(+el.value);}el.addEventListener('input',u);u();return el;}
+var t0=performance.now();
+function now(){return (performance.now()-t0)/1000;}
+
+var SIMS={};
+
+/* ---------------- hero animation ---------------- */
+(function(){
+  var cv=$('heroCanvas'),ctx=cv.getContext('2d');var W=cv.width,H=cv.height;
+  var ps=[];for(var i=0;i<140;i++)ps.push({x:Math.random()*W,y:Math.random()*H,s:.3+Math.random()*1.2});
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    ps.forEach(function(p){
+      var warm=p.x<W*.5;
+      p.y+=warm?-p.s:p.s;p.x+=warm?.2:-.2;
+      if(p.y<0){p.y=0;p.x=W*.5+Math.random()*W*.5;}
+      if(p.y>H){p.y=H;p.x=Math.random()*W*.5;}
+      ctx.fillStyle=warm?'rgba(255,138,61,.7)':'rgba(199,230,255,.6)';
+      ctx.beginPath();ctx.arc(p.x,p.y,2.2,0,7);ctx.fill();
+    });
+  }
+  SIMS.start={draw:draw};
+})();
+
+/* ---------------- ENGINE ROOM sim ---------------- */
+(function(){
+  var c=mkCanvas('cv-engine',720,400),ctx=c.ctx,W=c.W,H=c.H;
+  var heat=0,moist=30;
+  bindRange('eng-heat',function(v){return v;},function(v){heat=v;});
+  bindRange('eng-moist',function(v){return v+'%';},function(v){moist=v;});
+  var ps=[];for(var i=0;i<160;i++)ps.push({x:Math.random()*W,y:40+Math.random()*290,t:0});
+  var ground=340;
+  function draw(){
+    sky(ctx,W,H,'#0b1a3a','#1b3b6e');
+    var h=heat/100;
+    // ground: left hot, right cool
+    var g=ctx.createLinearGradient(0,ground,W,ground);g.addColorStop(0,'rgb('+Math.round(90+h*165)+','+Math.round(70+h*40)+',40)');g.addColorStop(1,'#3b5a4a');
+    ctx.fillStyle=g;ctx.fillRect(0,ground,W,H-ground);
+    // sun
+    ctx.fillStyle='rgba(255,210,80,'+(0.25+h*.75)+')';ctx.beginPath();ctx.arc(70,60,26+h*10,0,7);ctx.fill();
+    // particles flow: loop. Hot zone x<W*.45
+    ps.forEach(function(p){
+      var inHot=p.x<W*.42;
+      var nearGround=p.y>ground-40,nearTop=p.y<80;
+      // temperature: heat up near hot ground, cool at top
+      if(inHot&&nearGround)p.t=Math.min(1,p.t+0.03*h+0.002);
+      if(nearTop||!inHot)p.t=Math.max(0,p.t-0.012);
+      var sp=0.3+h*3;
+      if(p.t>0.35){p.y-=sp*p.t;p.x+=(Math.random()-.5)*1.2;}
+      else{p.y+=sp*0.6+0.15;p.x+=(Math.random()-.5)*1.2;}
+      if(p.y<60){p.x+=sp*1.4;}
+      if(p.y>ground-10){p.y=ground-10;p.x-=sp*1.4;}
+      if(p.y<25)p.y=25;
+      if(p.x<10)p.x=10;if(p.x>W-10){p.x=W-10;}
+      if(h<0.05){p.y+=(Math.random()-.5)*.6;p.x+=(Math.random()-.5)*.6;}
+      var r=Math.round(120+p.t*135),b=Math.round(255-p.t*200);
+      ctx.fillStyle='rgba('+r+','+Math.round(170-p.t*60)+','+b+',.85)';
+      ctx.beginPath();ctx.arc(p.x,p.y,3.2,0,7);ctx.fill();
+    });
+    // clouds
+    var cl=h*moist/100;
+    if(cl>0.25){cloud(ctx,160,80,160*cl+60,60*cl+20,'rgba(230,240,255,'+Math.min(.9,cl)+')');}
+    // arrows: rising left, sinking right, surface flow right->left
+    if(h>0.08){
+      arrow(ctx,150,ground-40,150,ground-40-140*h,'#ffb06b',3);
+      arrow(ctx,600,120,600,120+140*h,'#c7e6ff',3);
+      arrow(ctx,560,ground-18,260,ground-18,'#fff',2.5);
+      label(ctx,'wind',410,ground-26,'#fff',14,'center');
+      arrow(ctx,240,60,520,60,'#c7e6ff',2);
+    }
+    // pressure labels
+    label(ctx,h>0.08?'LOW pressure':'normal pressure',150,ground+30,'#ffb06b',16,'center');
+    label(ctx,h>0.08?'HIGH pressure':'normal pressure',600,ground+30,'#c7e6ff',16,'center');
+    label(ctx,'warm ground',150,ground+52,'#ffe0c2',12,'center');
+    label(ctx,'cool ground',600,ground+52,'#c7e6ff',12,'center');
+    $('eng-ro1').textContent=h<0.05?'Still':h<0.4?'Rising slowly':'Rising fast';
+    $('eng-ro2').textContent=h<0.05?'Normal':h<0.4?'Low':'Very low';
+    $('eng-ro3').textContent=h<0.05?'Calm':h<0.3?'Breeze':h<0.7?'Windy':'Strong wind';
+    $('eng-ro4').textContent=cl<0.25?'None':cl<0.6?'Small cloud':'Storm cloud';
+  }
+  SIMS.engine={draw:draw};
+})();
+
+/* ---------------- THUNDERSTORM sim ---------------- */
+(function(){
+  var c=mkCanvas('cv-thunder',720,400),ctx=c.ctx,W=c.W,H=c.H;
+  var temp=20,hum=40,flash=0,drops=[];
+  bindRange('th-temp',function(v){return v+'°C';},function(v){temp=v;});
+  bindRange('th-hum',function(v){return v+'%';},function(v){hum=v;});
+  for(var i=0;i<80;i++)drops.push({x:Math.random()*W,y:Math.random()*H});
+  var ground=330;
+  function strength(){var a=(temp-5)/35,b=(hum-10)/90;return Math.max(0,Math.min(1,a*0.6+b*0.4-0.08));}
+  function calc(){
+    var s=strength();
+    var up=Math.round(5+s*95);
+    var res=s<0.25?'Clear sky':s<0.45?'Puffy clouds':s<0.62?'Rain shower':s<0.8?'Thunderstorm':'Severe thunderstorm';
+    var p=s<0.25?'Normal':s<0.6?'Low':'Very low';
+    var lh=hum<30?'Almost none':s<0.5?'Some':s<0.8?'A lot':'Huge';
+    return {s:s,up:up,res:res,p:p,lh:lh};
+  }
+  function draw(){
+    var r=calc(),s=r.s,tm=now();
+    sky(ctx,W,H,s>0.6?'#0a1024':'#1d4d8f',s>0.6?'#24344f':'#4a8fd6');
+    // ground
+    ctx.fillStyle='rgb('+Math.round(60+(temp-5)*4)+',120,60)';ctx.fillRect(0,ground,W,H-ground);
+    ctx.fillStyle='rgba(255,180,60,'+(0.3+(temp-5)/35*0.7)+')';ctx.beginPath();ctx.arc(640,60,30,0,7);ctx.fill();
+    var cx=300;
+    // cloud grows
+    var top=ground-80-s*230;
+    if(s>0.2){
+      var col=s>0.6?'rgba(90,100,120,.95)':'rgba(240,245,255,.92)';
+      var h=ground-40-top;
+      for(var k=0;k<4;k++){var yy2=top+h*(k/4)+30;var ww=120+k*40+s*60;cloud(ctx,cx,yy2,ww,60,col);}
+      if(s>0.78){ctx.fillStyle='rgba(120,130,150,.9)';rr(ctx,cx-200,top-10,400,26,10);ctx.fill();label(ctx,'anvil top',cx,top-16,'#fff',12,'center');}
+      if(hum>30){ctx.fillStyle='rgba(255,200,100,'+(s*.25)+')';ctx.beginPath();ctx.arc(cx,top+h*.5,60+s*40,0,7);ctx.fill();label(ctx,'latent heat',cx,top+h*.5+5,'#ffe0b0',12,'center');}
+    }
+    // updraft arrows (drawn over the cloud so they stay visible)
+    for(var i=0;i<4;i++){
+      var yy=ground-20-((tm*s*120+i*60)%240);
+      if(s>0.15)arrow(ctx,cx-30+i*20,yy+20,cx-30+i*20,yy-10-s*20,'rgba(255,176,107,'+(0.6+s*.4)+')',2.5);
+    }
+    // rain
+    if(s>0.45){ctx.strokeStyle='rgba(200,225,255,.7)';ctx.lineWidth=1.5;drops.forEach(function(d){d.y+=6+s*6;if(d.y>ground){d.y=top+40;d.x=cx-120+Math.random()*240;}if(d.x>cx-140&&d.x<cx+140&&d.y>top+40){ctx.beginPath();ctx.moveTo(d.x,d.y);ctx.lineTo(d.x-1,d.y+10);ctx.stroke();}});}
+    // lightning
+    if(s>0.75){if(Math.random()<0.02)flash=6;if(flash>0){flash--;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.beginPath();var x=cx+40,y=top+60;ctx.moveTo(x,y);for(var j=0;j<6;j++){x+=(Math.random()-.5)*40;y+=(ground-top-60)/6;ctx.lineTo(x,y);}ctx.stroke();ctx.fillStyle='rgba(255,255,255,.12)';ctx.fillRect(0,0,W,H);}}
+    // inflow at surface
+    if(s>0.3){arrow(ctx,80,ground-14,cx-70,ground-14,'#fff',2.5);arrow(ctx,W-80,ground-14,cx+70,ground-14,'#fff',2.5);label(ctx,'air rushes in',cx,ground-22,'#fff',12,'center');}
+    label(ctx,r.p==='Normal'?'normal pressure':'LOW pressure',cx,ground+28,'#ffb06b',16,'center');
+    label(ctx,'warm, humid ground',cx,ground+50,'#ffe0c2',12,'center');
+    $('th-ro1').textContent=s<0.15?'None':r.up+' mph up';$('th-ro2').textContent=r.p;$('th-ro3').textContent=r.lh;$('th-ro4').textContent=r.res;
+  }
+  SIMS.thunder={draw:draw,snapshot:function(){var r=calc();return {'Ground temp':temp+'°C','Humidity':hum+'%','Updraft':r.s<0.15?'none':r.up+' mph','Surface pressure':r.p,'Latent heat':r.lh,'Result':r.res};}};
+})();
+
+/* ---------------- TORNADO sim ---------------- */
+(function(){
+  var c=mkCanvas('cv-tornado',720,400),ctx=c.ctx,W=c.W,H=c.H;
+  var shear=0,tight=0,ang=0,debris=[];
+  bindRange('to-shear',function(v){return v;},function(v){shear=v;});
+  bindRange('to-tight',function(v){return v<34?'Wide':v<67?'Medium':'Narrow';},function(v){tight=v;});
+  for(var i=0;i<40;i++)debris.push({a:Math.random()*7,r:Math.random(),y:Math.random()});
+  var ground=340,cx=360,base=110;
+  function calc(){
+    var sh=shear/100,tg=tight/100;
+    var rot=sh<0.2?0:sh;
+    var spin=rot*(0.35+tg*1.4);
+    var wind=rot<=0?0:Math.round(40+spin*130);
+    var pres=rot<=0?1000:Math.round(1000-spin*55);
+    var ef=rot<=0?'No tornado':wind<86?'EF0 (weak)':wind<111?'EF1':wind<136?'EF2':wind<166?'EF3 (strong)':wind<200?'EF4 (violent)':'EF5 (violent)';
+    var rotTxt=rot<=0?'No rotation':tg<0.34?'Slow, wide spin':tg<0.67?'Faster spin':'Very fast, tight spin';
+    return {rot:rot,spin:spin,wind:wind,pres:pres,ef:ef,rotTxt:rotTxt,tg:tg,sh:sh};
+  }
+  function draw(){
+    var r=calc();
+    sky(ctx,W,H,'#0a1024','#3a4a60');
+    ctx.fillStyle='#4a5a3a';ctx.fillRect(0,ground,W,H-ground);
+    // supercell cloud
+    cloud(ctx,cx,base,520,120,'rgba(70,80,100,.95)');cloud(ctx,cx,base-30,380,100,'rgba(90,100,120,.9)');
+    // shear arrows on left
+    for(var i=0;i<4;i++){var y=ground-30-i*55;var len=20+r.sh*(i*35);arrow(ctx,60,y,60+len,y,'#c7e6ff',2);}
+    label(ctx,'wind shear',60,ground-250,'#c7e6ff',12,'left');
+    // updraft arrows
+    arrow(ctx,cx+170,ground-20,cx+170,base+70,'#ffb06b',3);label(ctx,'updraft',cx+200,ground-80,'#ffb06b',12,'left');
+    // rotating column
+    ang+=r.spin*0.25;
+    if(r.rot>0){
+      var topW=140-r.tg*60,botW=Math.max(8,70-r.tg*62),touch=r.tg>0.3||r.sh>0.6;
+      var botY=touch?ground:ground-120+r.tg*120;
+      ctx.fillStyle='rgba(120,130,150,'+(0.5+r.spin*.3)+')';
+      ctx.beginPath();ctx.moveTo(cx-topW,base+40);ctx.quadraticCurveTo(cx-botW*1.5,(base+botY)/2,cx-botW,botY);ctx.lineTo(cx+botW,botY);ctx.quadraticCurveTo(cx+botW*1.5,(base+botY)/2,cx+topW,base+40);ctx.closePath();ctx.fill();
+      // spinning bands
+      debris.forEach(function(d){
+        var yy=base+40+d.y*(botY-base-40);var frac=d.y;var rad=topW+(botW-topW)*frac;
+        var a=ang*(0.6+frac*1.2)+d.a;var x=cx+Math.cos(a)*rad*d.r;
+        var front=Math.sin(a)>0;
+        ctx.fillStyle=front?'rgba(255,255,255,.8)':'rgba(255,255,255,.25)';
+        ctx.beginPath();ctx.arc(x,yy,2.5+frac*1.5,0,7);ctx.fill();
+      });
+      if(touch){ctx.fillStyle='rgba(120,100,70,.6)';ctx.beginPath();ctx.ellipse(cx,ground,60+r.spin*40,18,0,0,7);ctx.fill();
+        arrow(ctx,cx-200,ground-10,cx-botW-20,ground-10,'#fff',2.5);arrow(ctx,cx+200,ground-10,cx+botW+20,ground-10,'#fff',2.5);}
+      label(ctx,'core: '+r.pres+' mb',cx,(base+botY)/2,'#ffd166',14,'center');
+    }else{label(ctx,'updraft rises straight up — no spin',cx,220,'#c7e6ff',14,'center');}
+    $('to-ro1').textContent=r.rotTxt;$('to-ro2').textContent=r.pres+' mb';$('to-ro3').textContent=r.wind?r.wind+' mph':'—';$('to-ro4').textContent=r.ef;
+  }
+  SIMS.tornado={draw:draw,snapshot:function(){var r=calc();return {'Wind shear':shear,'Spin tightness':tight<34?'Wide':tight<67?'Medium':'Narrow','Rotation':r.rotTxt,'Core pressure':r.pres+' mb','Wind':r.wind?r.wind+' mph':'0 mph','Result':r.ef};}};
+})();
+
+/* ---------------- HURRICANE sim ---------------- */
+(function(){
+  var c=mkCanvas('cv-hurricane',720,400),ctx=c.ctx,W=c.W,H=c.H;
+  var sst=28,where='ocean',inten=0.15,ang=0,last=now();
+  bindRange('hu-sst',function(v){return v+'°C';},function(v){sst=v;});
+  $('hu-where').addEventListener('change',function(){where=this.value;});
+  $('hu-reset').addEventListener('click',function(){inten=0.15;});
+  function fuel(){if(where==='land')return 0;if(where==='cool')return 0.15;return Math.max(0,(sst-24)/8);}
+  function calc(){
+    var f=fuel();
+    var wind=Math.round(25+inten*155);var pres=Math.round(1005-inten*95);
+    var cat=inten<0.2?'Tropical disturbance':inten<0.32?'Tropical storm':inten<0.45?'Category 1':inten<0.58?'Category 2':inten<0.72?'Category 3':inten<0.86?'Category 4':'Category 5';
+    var ftxt=f<=0?'None (over land)':f<0.2?'Very little':f<0.5?'Some':f<0.8?'A lot':'Maximum';
+    return {f:f,wind:wind,pres:pres,cat:cat,ftxt:ftxt};
+  }
+  function draw(){
+    var t=now(),dt=Math.min(0.1,t-last);last=t;
+    var r=calc();
+    // intensity moves toward target set by fuel
+    var target=r.f<0.26?Math.min(0.15,r.f):Math.min(1,0.2+r.f*0.85);
+    if(where!=='ocean')target=where==='land'?0.05:0.15;
+    inten+=(target-inten)*(target>inten?0.08:0.18)*dt*3;
+    inten=Math.max(0.05,Math.min(1,inten));
+    ang+=dt*(0.5+inten*2.5);
+    // background: ocean / land
+    var bg=where==='land'?'#5a6b3a':where==='cool'?'#2b4f7a':('rgb('+Math.round(8+(sst-20)*2)+','+Math.round(60+(sst-20)*6)+','+Math.round(140+(sst-20)*4)+')');
+    ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+    label(ctx,where==='land'?'LAND (no fuel)':where==='cool'?'cooler water':'warm ocean '+sst+'°C',20,30,'#fff',14,'left');
+    // evaporation wisps
+    if(where==='ocean'){for(var i=0;i<Math.round(r.f*40);i++){var x=(i*53+t*30)%W,y=H-20-((t*40+i*17)%60);ctx.fillStyle='rgba(255,255,255,.35)';ctx.beginPath();ctx.arc(x,y,3,0,7);ctx.fill();}label(ctx,'evaporation (fuel)',W-20,H-14,'#fff',12,'right');}
+    // spiral storm
+    var cx=360,cy=200,R=60+inten*150;
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(-ang);
+    for(var b=0;b<3;b++){ctx.strokeStyle='rgba(255,255,255,'+(0.35+inten*.5)+')';ctx.lineWidth=14+inten*16;ctx.beginPath();
+      for(var a=0;a<Math.PI*2.4;a+=0.1){var rad=12+a*R/7.5;var ang2=a+b*2.094;var px=Math.cos(ang2)*rad,py=Math.sin(ang2)*rad;if(a===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);}ctx.stroke();}
+    ctx.restore();
+    // eyewall and eye
+    ctx.strokeStyle='rgba(255,255,255,.95)';ctx.lineWidth=8+inten*10;ctx.beginPath();ctx.arc(cx,cy,18+inten*14,0,7);ctx.stroke();
+    ctx.fillStyle=bg;ctx.beginPath();ctx.arc(cx,cy,10+inten*8,0,7);ctx.fill();
+    if(inten>0.4){label(ctx,'center: eye (sinking air, calm)',W-20,30,'#ffd166',12,'right');label(ctx,'ring around eye: eyewall (strongest wind)',W-20,50,'#fff',12,'right');label(ctx,'orange arrows: air spirals in',W-20,70,'#ffb06b',12,'right');}
+    // inflow arrows
+    for(var k=0;k<6;k++){var aa=k*1.047+ang*0.3;var x1=cx+Math.cos(aa)*(R+60),y1=cy+Math.sin(aa)*(R+60);var x2=cx+Math.cos(aa+0.5)*(R+10),y2=cy+Math.sin(aa+0.5)*(R+10);if(inten>0.2)arrow(ctx,x1,y1,x2,y2,'rgba(255,176,107,.8)',2);}
+    label(ctx,'eye pressure '+r.pres+' mb',20,H-14,'#ffe0b0',13,'left');
+    $('hu-ro1').textContent=r.ftxt;$('hu-ro2').textContent=r.pres+' mb';$('hu-ro3').textContent=r.wind+' mph';$('hu-ro4').textContent=r.cat;
+  }
+  SIMS.hurricane={draw:draw,snapshot:function(){var r=calc();return {'Ocean temp':sst+'°C','Location':where==='ocean'?'warm ocean':where==='cool'?'cooler water':'land','Fuel':r.ftxt,'Eye pressure':r.pres+' mb','Wind':r.wind+' mph','Strength':r.cat};}};
+})();
+
+/* ---------------- FLOOD sim ---------------- */
+(function(){
+  var c=mkCanvas('cv-flood',720,400),ctx=c.ctx,W=c.W,H=c.H;
+  var rain=1,hours=6,groundT='forest',running=false,t=0,level=0,soak=0,total=0,last=now(),drops=[];
+  var RN=['','Light','Moderate','Heavy','Extreme'];
+  bindRange('fl-rain',function(v){return RN[v];},function(v){rain=v;});
+  bindRange('fl-hours',function(v){return v+' hours';},function(v){hours=v;});
+  $('fl-ground').addEventListener('change',function(){groundT=this.value;});
+  $('fl-run').addEventListener('click',function(){reset();running=true;});
+  $('fl-reset').addEventListener('click',reset);
+  function reset(){running=false;t=0;level=0;soak=0;total=0;}
+  for(var i=0;i<120;i++)drops.push({x:Math.random()*W,y:Math.random()*H});
+  var ground=300;
+  function absorb(){return groundT==='forest'?0.75:groundT==='farm'?0.45:0.05;}
+  function status(){
+    if(level<0.4)return 'No flood';
+    if(level<0.8)return 'Stream rising';
+    return (t<=12&&rain>=3)?'FLASH FLOOD':'RIVER FLOOD';
+  }
+  function draw(){
+    var n=now(),dt=Math.min(0.1,n-last);last=n;
+    if(running){
+      var speed=hours<=12?1.2:hours<=36?4:9; // sim hours per second
+      t+=dt*speed;if(t>=hours){t=hours;running=false;}
+      var rate=[0,0.08,0.22,0.5,1.0][rain];
+      var inflow=rate*(1-absorb())*dt*speed;
+      var soaked=rate*absorb()*dt*speed;
+      // soil fills up: after it is saturated, less absorbs
+      soak+=soaked;var sat=groundT==='city'?0:groundT==='forest'?6:3;
+      if(soak>sat){inflow+=soaked*0.8;}
+      total+=rate*dt*speed;
+      level+=inflow*0.11;level-=0.004*dt*speed;level=Math.max(0,Math.min(1.3,level));
+    }
+    sky(ctx,W,H,rain>=3?'#121a2c':'#2e5080',rain>=3?'#2a3450':'#5a8ac0');
+    // low pressure L
+    cloud(ctx,360,70,600,90,rain>=3?'rgba(70,80,100,.95)':'rgba(200,215,235,.9)');
+    label(ctx,'L',100,80,'#ff6b6b',48,'center');label(ctx,'low pressure stays '+hours+' h',100,100,'#ffd3d3',12,'center');
+    // rain
+    if(running||t>0&&t<hours){ctx.strokeStyle='rgba(200,225,255,.75)';ctx.lineWidth=1.3;var cnt=rain*30;drops.forEach(function(d,i){if(i>cnt)return;d.y+=5+rain*3;if(d.y>ground)d.y=100;ctx.beginPath();ctx.moveTo(d.x,d.y);ctx.lineTo(d.x-1,d.y+9);ctx.stroke();});}
+    // ground cross-section
+    var gcol=groundT==='city'?'#555a66':groundT==='farm'?'#7a5a3a':'#3b6a2a';
+    ctx.fillStyle=gcol;ctx.fillRect(0,ground,W,H-ground);
+    label(ctx,groundT==='city'?'pavement: water cannot soak in':groundT==='farm'?'farm soil: soaks some':'forest soil: soaks a lot',20,ground+24,'#fff',13,'left');
+    // soaked water band
+    if(groundT!=='city'){ctx.fillStyle='rgba(80,140,255,.35)';ctx.fillRect(0,ground+34,W*0.55,Math.min(50,soak*8));}
+    // stream channel on right
+    var sx=440,sw=200,sd=90;
+    ctx.fillStyle='#2a2a30';ctx.fillRect(sx,ground-sd,sw,sd+H);
+    var wl=Math.min(1.3,level)*sd;
+    ctx.fillStyle=level>1?'rgba(120,90,60,.95)':'rgba(60,130,230,.9)';
+    ctx.fillRect(sx,ground-Math.min(wl,sd),sw,Math.min(wl,sd)+H);
+    if(level>1){var ov=(level-1)*70;ctx.fillStyle='rgba(120,90,60,.85)';ctx.fillRect(0,ground-sd-ov,W,ov+2);label(ctx,'water spills over the banks',20,ground-sd-ov-8,'#ffd166',13,'left');}
+    ctx.strokeStyle='#ffd166';ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(sx-10,ground-sd*0.8);ctx.lineTo(sx+sw+10,ground-sd*0.8);ctx.stroke();ctx.setLineDash([]);
+    label(ctx,'flood line',sx+sw+14,ground-sd*0.8+4,'#ffd166',11,'left');
+    // runoff arrows
+    if(level>0.05&&t<hours){arrow(ctx,sx-150,ground+2,sx-10,ground-wl+10,'#7fc8ff',2.5);label(ctx,'runoff',sx-120,ground-8,'#7fc8ff',12,'left');}
+    label(ctx,'stream',sx+sw/2,ground+30,'#fff',13,'center');
+    var st=status();
+    $('fl-ro1').textContent=Math.round(t)+' h';$('fl-ro2').textContent=Math.round(absorb()*100)+'%'+(soak>(groundT==='forest'?6:3)&&groundT!=='city'?' (soil full)':'');
+    $('fl-ro3').textContent=Math.round(level*100)+'% of bank';$('fl-ro4').textContent=st;
+  }
+  SIMS.flood={draw:draw,snapshot:function(){return {'Rain':RN[rain],'Storm length':hours+' h','Ground':groundT==='city'?'pavement':groundT==='farm'?'farm field':'forest soil','Time run':Math.round(t)+' h','Stream level':Math.round(level*100)+'%','Result':status()};}};
+})();
+
+/* ---------------- DROUGHT sim ---------------- */
+(function(){
+  var c=mkCanvas('cv-drought',720,400),ctx=c.ctx,W=c.W,H=c.H;
+  var days=0,str=2;
+  bindRange('dr-days',function(v){return v+' days';},function(v){days=v;});
+  bindRange('dr-strength',function(v){return ['','Weak','Medium','Strong'][v];},function(v){str=v;});
+  var ground=320;
+  function calc(){
+    var loss=days*[0,0.6,1.0,1.4][str];
+    var moist=Math.max(0,Math.round(100-loss));
+    var lvl=moist>70?'No drought':moist>45?'Dry spell':moist>20?'Moderate drought':'Severe drought';
+    var air=days===0?'Mixed':'Sinking and warming';
+    var clouds=days===0?'Yes, some':str===1&&days<10?'A few small ones':'No, blocked by sinking air';
+    return {moist:moist,lvl:lvl,air:air,clouds:clouds};
+  }
+  function draw(){
+    var r=calc(),t=now(),d=days/90;
+    sky(ctx,W,H,'#3a7bd5','#f5d58a');
+    // sun grows
+    ctx.fillStyle='rgba(255,220,90,'+(0.6+d*.4)+')';ctx.beginPath();ctx.arc(600,70,30+d*18,0,7);ctx.fill();
+    // dome
+    if(days>0){ctx.strokeStyle='rgba(255,255,255,.7)';ctx.lineWidth=3;ctx.setLineDash([10,8]);ctx.beginPath();ctx.ellipse(360,ground,340,260,0,Math.PI,0);ctx.stroke();ctx.setLineDash([]);
+      label(ctx,'H',360,120,'#1565c0',52,'center');label(ctx,'high-pressure dome ('+['','weak','medium','strong'][str]+')',360,140,'#0d2b5e',13,'center');
+      // sinking arrows
+      for(var i=0;i<5;i++){var x=160+i*100;var yy=150+((t*40*str+i*50)%120);arrow(ctx,x,yy,x,yy+40,'rgba(255,255,255,.85)',2.5);}
+      label(ctx,'air sinks and warms',360,ground-18,'#fff',13,'center');
+      // fizzling cloud attempts
+      if(str<3){var fade=Math.max(0,0.5-d);cloud(ctx,120+(t*10)%100,230,90,36,'rgba(255,255,255,'+fade+')');label(ctx,'cloud tries to form… dries out',130,275,'rgba(255,255,255,'+(fade+0.2)+')',11,'left');}
+    }else{cloud(ctx,160,120,160,60,'rgba(255,255,255,.9)');cloud(ctx,460,150,140,50,'rgba(255,255,255,.85)');for(var k=0;k<3;k++)arrow(ctx,200+k*160,ground-20,200+k*160,ground-90,'#ffb06b',2.5);label(ctx,'warm air can rise: clouds form',360,ground-100,'#fff',13,'center');}
+    // ground color by moisture
+    var m=r.moist/100;
+    ctx.fillStyle='rgb('+Math.round(150-m*90)+','+Math.round(110+m*40)+','+Math.round(60+m*10)+')';ctx.fillRect(0,ground,W,H-ground);
+    // cracks
+    if(m<0.45){ctx.strokeStyle='rgba(60,40,20,.7)';ctx.lineWidth=2;for(var cI=0;cI<Math.round((0.45-m)*40);cI++){var cx=(cI*97)%W;ctx.beginPath();ctx.moveTo(cx,ground+10);ctx.lineTo(cx+12,ground+40);ctx.lineTo(cx-4,ground+70);ctx.stroke();}}
+    // plants
+    for(var p=0;p<9;p++){var px=50+p*80;var hgt=40*Math.max(0.25,m);ctx.strokeStyle=m>0.45?'#2e8b2e':m>0.2?'#9a9a3a':'#8a6a3a';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(px,ground);ctx.quadraticCurveTo(px+(1-m)*18,ground-hgt*.6,px+(1-m)*30,ground-hgt);ctx.stroke();}
+    // moisture bar
+    rr(ctx,20,20,180,26,6);ctx.fillStyle='rgba(0,0,0,.35)';ctx.fill();rr(ctx,22,22,176*m,22,5);ctx.fillStyle=m>0.45?'#5ed38a':m>0.2?'#ffd166':'#ff6b6b';ctx.fill();label(ctx,'soil moisture '+r.moist+'%',24,60,'#1b2435',13,'left');
+    $('dr-ro1').textContent=r.air;$('dr-ro2').textContent=r.clouds;$('dr-ro3').textContent=r.moist+'%';$('dr-ro4').textContent=r.lvl;
+  }
+  SIMS.drought={draw:draw,snapshot:function(){var r=calc();return {'Days under dome':days,'Dome strength':['','Weak','Medium','Strong'][str],'Air motion':r.air,'Clouds':r.clouds,'Soil moisture':r.moist+'%','Result':r.lvl};}};
+})();
+
+/* ---------------- WINTER / LAKE-EFFECT sim ---------------- */
+(function(){
+  var c=mkCanvas('cv-winter',720,400),ctx=c.ctx,W=c.W,H=c.H;
+  var air=-5,lake=6,wind=20,flakes=[],depth=0,last=now();
+  bindRange('wi-air',function(v){return v+'°C';},function(v){air=v;});
+  bindRange('wi-lake',function(v){return v+'°C';},function(v){lake=v;});
+  bindRange('wi-wind',function(v){return v+' mph';},function(v){wind=v;});
+  for(var i=0;i<160;i++)flakes.push({x:Math.random()*W,y:Math.random()*H,s:1+Math.random()*2});
+  var ground=320,lakeEnd=380;
+  function calc(){
+    var diff=lake-air;
+    var conv=Math.max(0,Math.min(1,(diff-5)/15));
+    var w=wind/50;
+    var rate=air>0?0:conv*(0.3+w*0.7);
+    var inch=Math.round(rate*4*10)/10;
+    var res=air>0?'Too warm: rain or nothing':conv<=0?'No lake effect (air not cold enough)':rate<0.2?'Flurries':rate<0.5?'Snow bands':rate<0.8?'Heavy lake-effect snow':'Extreme lake-effect snow';
+    if(wind===0&&conv>0)res='Steam fog over lake, no bands (no wind to carry it)';
+    var over=conv<=0?'Stays cold and dense':'Warmed by lake, rises';
+    return {diff:diff,conv:conv,rate:rate,inch:inch,res:res,over:over,w:w};
+  }
+  function draw(){
+    var n=now(),dt=Math.min(0.1,n-last);last=n;var r=calc(),t=now();
+    sky(ctx,W,H,'#1a2a44','#6f8db0');
+    // lake
+    var lg=ctx.createLinearGradient(0,ground,0,H);lg.addColorStop(0,'rgb('+Math.round(40+lake*6)+','+Math.round(100+lake*6)+',190)');lg.addColorStop(1,'#163a6a');ctx.fillStyle=lg;ctx.fillRect(0,ground,lakeEnd,H-ground);
+    label(ctx,'lake '+lake+'°C (warm)',20,ground+26,'#fff',13,'left');
+    // land
+    ctx.fillStyle='#4a5a4a';ctx.fillRect(lakeEnd,ground-10,W-lakeEnd,H);
+    depth+=r.rate*dt*4;depth=Math.min(60,depth);
+    if(depth>0){ctx.fillStyle='#fff';ctx.fillRect(lakeEnd,ground-10-depth,W-lakeEnd,depth);}
+    label(ctx,'downwind shore',lakeEnd+20,ground+26,'#fff',13,'left');
+    // wind arrows (upper left)
+    for(var i=0;i<3;i++){var y=60+i*35;var x=20+((t*wind*3+i*70)%200);if(wind>0)arrow(ctx,x,y,x+20+r.w*40,y,'#c7e6ff',2.5);}
+    label(ctx,'Arctic air '+air+'°C (cold, dense)',20,40,'#c7e6ff',13,'left');
+    // rising steam/moisture over lake
+    if(r.conv>0){for(var k=0;k<Math.round(r.conv*25);k++){var sx=30+(k*37)%320;var sy=ground-10-((t*50+k*23)%(60+r.conv*120));var drift=sy<ground-40?(ground-sy)*r.w*0.9:0;ctx.fillStyle='rgba(255,255,255,.4)';ctx.beginPath();ctx.arc(sx+drift,sy,4,0,7);ctx.fill();}
+      arrow(ctx,190,ground-20,190+r.w*60,ground-100-r.conv*80,'#ffb06b',3);label(ctx,'warm, moist air rises',200,ground-115-r.conv*80,'#ffb06b',12,'left');
+      // band cloud
+      var bx=240+r.w*150,bw=160+r.conv*180;cloud(ctx,bx,150,bw,70,'rgba(220,230,245,'+(0.5+r.conv*.45)+')');
+      label(ctx,'snow band',bx,120,'#fff',12,'center');
+      if(r.rate>0){var cnt=Math.round(r.rate*150);flakes.forEach(function(f,i){if(i>cnt)return;f.y+=1.5+f.s;f.x+=r.w*2;if(f.y>ground-10-depth||f.x>W){f.y=160;f.x=bx-bw/2+Math.random()*bw;}if(f.x>lakeEnd-40){ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(f.x,f.y,f.s,0,7);ctx.fill();}});}
+    }else{label(ctx,'air stays cold: no rising, no snow',200,ground-60,'#c7e6ff',13,'left');}
+    $('wi-ro1').textContent=r.diff+'°C';$('wi-ro2').textContent=r.over;$('wi-ro3').textContent=r.inch+' in/hr';$('wi-ro4').textContent=r.res;
+  }
+  SIMS.winter={draw:draw,snapshot:function(){var r=calc();return {'Air temp':air+'°C','Lake temp':lake+'°C','Wind':wind+' mph','Lake minus air':r.diff+'°C','Air over lake':r.over,'Snow rate':r.inch+' in/hr','Result':r.res};}};
+})();
+
+/* ---------------- animation loop ---------------- */
+var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function loop(){
+  var s=SIMS[current];
+  if(s&&s.draw&&(!reduce||current!=='start'))s.draw();
+  requestAnimationFrame(loop);
+}
+// draw each sim once so readouts fill in
+Object.keys(SIMS).forEach(function(k){if(SIMS[k].draw)SIMS[k].draw();});
+requestAnimationFrame(loop);
+
+/* ---------------- WRAP-UP ---------------- */
+var CHAINS={
+ thunder:['The sun heats the ground and the air near it','Warm, moist air rises as an updraft','The air cools; water vapor condenses and releases latent heat','Low pressure at the ground pulls more air in'],
+ tornado:['A supercell thunderstorm has a strong updraft','Wind shear makes the updraft spin (mesocyclone)','The spin tightens and core pressure drops very low','Air rushes toward the core and spins faster'],
+ hurricane:['Warm ocean water evaporates fast','Warm, moist air rises in huge columns','Deep low pressure forms at the center','Air spirals in and the storm grows stronger'],
+ flood:['A low-pressure system keeps pulling in warm, moist air','Storms rain over the same area again and again','The ground cannot soak up any more water','Runoff fills the streams past their banks'],
+ drought:['High pressure sits over a region for weeks','Air sinks, squeezes together, and warms up','Clouds cannot form because nothing rises','No rain falls and the land dries out'],
+ winter:['Cold, dense Arctic air blows across the lake','The warm lake heats the air above it','Warmed, moist air rises, cools, and freezes','Snow bands fall on the downwind shore']
+};
+var FRAMES={
+ thunder:{f:'A thunderstorm starts when ___. The air rises because ___. Low pressure at the ground makes ___. The storm keeps going because ___.',b:['heat','less dense','updraft','rises','condenses','latent heat','low pressure','rushes in']},
+ tornado:{f:'A tornado forms inside a ___. Wind shear makes the updraft ___. As the spin gets tighter, the core pressure ___. Air spins faster near the core because ___.',b:['supercell','rotate','mesocyclone','drops','low pressure','rushes in','tighter','faster']},
+ hurricane:{f:'A hurricane is a huge convection current. Its fuel is ___. The warm, moist air ___. This makes ___ at the center. When the storm moves over land it ___ because ___.',b:['warm ocean water','evaporates','rises','low pressure','eye','eyewall','weakens','loses its fuel']},
+ flood:{f:'Floods happen when ___ keeps storms over the same place. A flash flood is caused by ___. A river flood is different because ___. In my lab, the ground type mattered because ___.',b:['low pressure','convection','heavy rain','fast','runoff','days or weeks','soaks in','pavement']},
+ drought:{f:'A drought happens when ___ sits over a region. The air is ___, so ___ cannot form. This is the flip side of a thunderstorm because ___.',b:['high pressure','sinking','warms','dries','no convection','clouds','rain','dome']},
+ winter:{f:'Winter storms start with a big ___ between cold and warm air. Lake-effect snow is a convection event. The heat source is ___. What rises is ___. What falls is ___, on the ___ shore.',b:['pressure difference','Arctic air','dense','warm lake','warm, moist air','rises','condenses','snow','downwind']}
+};
+function shuffled(arr,seed){var a=arr.map(function(x,i){return i;});for(var i=a.length-1;i>0;i--){seed=(seed*9301+49297)%233280;var j=Math.floor(seed/233280*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function renderWrap(){
+  var html='';
+  LABS.forEach(function(id,idx){
+    var ch=S.chains[id]||{order:[],ok:false};
+    var disp=shuffled(CHAINS[id],idx*7+13);
+    html+='<div class="card"><h3>'+(idx+1)+'. '+esc(NAMES[id])+'</h3>';
+    html+='<p><b>Step 1: Build the chain.</b> Click the events in the order they happen (first to last).</p>';
+    html+='<div class="chain '+(ch.ok?'right':(ch.order.length===4?'wrong':''))+'" data-chain="'+id+'">';
+    disp.forEach(function(ci){var pos=ch.order.indexOf(ci);html+='<button data-ci="'+ci+'" class="'+(pos>=0?'set':'')+'"><span class="n">'+(pos>=0?pos+1:'')+'</span>'+esc(CHAINS[id][ci])+'</button>';});
+    html+='</div><div class="row"><span class="fb '+(ch.ok?'ok':'no')+'">'+(ch.ok?'Correct chain.':(ch.order.length===4?'Not in the right order yet. Reset and try again.':''))+'</span><button class="btn ghost small" data-chainreset="'+id+'">Reset chain</button></div>';
+    html+='<p style="margin-top:14px"><b>Step 2: Explain it in your own words.</b> Use your lab log and what you saw. Three to five sentences.</p>';
+    html+='<div class="frame">'+esc(FRAMES[id].f)+'</div><div class="bank">'+FRAMES[id].b.map(function(w){return '<span>'+esc(w)+'</span>';}).join('')+'</div>';
+    html+='<textarea data-write="'+id+'" placeholder="Write here.">'+esc(S.writes[id]||'')+'</textarea><div class="count" id="count-'+id+'"></div></div>';
+  });
+  $('wrapList').innerHTML=html;
+  LABS.forEach(updateCount);
+  $('bigHazard').value=S.big.hazard;$('bigEngine').value=S.big.engine;$('bigWhy').value=S.big.why;updateBigCount();
+}
+function updateCount(id){var ta=document.querySelector('[data-write="'+id+'"]');var n=(ta?ta.value:'').trim().length;var c=$('count-'+id);if(c)c.textContent=n<60?(n+' characters (write a little more)'):n+' characters';}
+function updateBigCount(){var n=$('bigWhy').value.trim().length;$('bigWhy-c').textContent=n<60?(n+' characters (write a little more)'):n+' characters';}
+document.addEventListener('input',function(e){
+  var ta=e.target.closest('[data-write]');if(ta){var id=ta.getAttribute('data-write');S.writes[id]=ta.value;save();updateCount(id);updateDots();}
+  if(e.target.id==='bigWhy'){S.big.why=e.target.value;save();updateBigCount();updateDots();}
+});
+document.addEventListener('change',function(e){
+  if(e.target.id==='bigHazard'){S.big.hazard=e.target.value;save();updateDots();}
+  if(e.target.id==='bigEngine'){S.big.engine=e.target.value;save();updateDots();}
+  if(e.target.id==='honor'){S.honor=e.target.checked;save();buildReport();}
+});
+document.addEventListener('click',function(e){
+  var rs=e.target.closest('[data-chainreset]');if(rs){S.chains[rs.getAttribute('data-chainreset')]={order:[],ok:false};save();renderWrap();updateDots();return;}
+  var b=e.target.closest('.chain button');if(!b)return;
+  var id=b.parentNode.getAttribute('data-chain'),ci=+b.getAttribute('data-ci');
+  var ch=S.chains[id]||{order:[],ok:false};
+  if(ch.order.indexOf(ci)>=0||ch.order.length>=4)return;
+  ch.order.push(ci);
+  if(ch.order.length===4)ch.ok=ch.order.every(function(v,i){return v===i;});
+  S.chains[id]=ch;save();renderWrap();updateDots();
+});
+
+/* ---------------- REPORT ---------------- */
+function reportHTML(){
+  var d=new Date();
+  var h='<h1>The Engine Behind the Storm: Lab Report</h1>';
+  h+='<p><b>Name:</b> '+(S.name?esc(S.name):'<span class="miss">(no name)</span>')+' &nbsp; <b>Block:</b> '+(S.block?esc(S.block):'<span class="miss">(no block)</span>')+' &nbsp; <b>Date:</b> '+d.toLocaleDateString()+'</p>';
+  h+='<p>Dangerous Earth, Unit 3, Day 17. '+(S.honor?'Student confirms: all explanations are their own words, no AI tools used.':'<span class="miss">Honor statement not checked.</span>')+'</p>';
+  h+='<h2>Part 1: Engine Room check</h2>'+checkSummary('engine');
+  h+='<h2>Part 2: Weather labs</h2>';
+  LABS.forEach(function(id,i){
+    h+='<h3>'+(i+1)+'. '+esc(NAMES[id])+'</h3>';
+    var rows=S.logs[id]||[];
+    if(!rows.length)h+='<p class="miss">No results logged.</p>';
+    else{var keys=Object.keys(rows[0]);h+='<table><tr><th>#</th>'+keys.map(function(k){return '<th>'+esc(k)+'</th>';}).join('')+'</tr>'+rows.map(function(r,j){return '<tr><td>'+(j+1)+'</td>'+keys.map(function(k){return '<td>'+esc(r[k])+'</td>';}).join('')+'</tr>';}).join('')+'</table>';}
+    h+=checkSummary(id);
+  });
+  h+='<h2>Part 3: Explanations</h2>';
+  LABS.forEach(function(id,i){
+    var ch=S.chains[id];
+    h+='<h3>'+(i+1)+'. '+esc(NAMES[id])+'</h3>';
+    h+='<p><b>Chain of events:</b> '+(ch&&ch.ok?'built correctly':'<span class="miss">not completed correctly</span>')+(ch&&ch.order.length?'<br>'+ch.order.map(function(ci,k){return '<span class="chip">'+(k+1)+'. '+esc(CHAINS[id][ci])+'</span>';}).join(' '):'')+'</p>';
+    var w=(S.writes[id]||'').trim();
+    h+='<div class="ans">'+(w?esc(w):'<span class="miss">No explanation written.</span>')+'</div>';
+  });
+  h+='<h2>Part 4: The big picture (Michigan)</h2>';
+  h+='<p><b>Hazard chosen:</b> '+(S.big.hazard?esc(S.big.hazard):'<span class="miss">none</span>')+' &nbsp; <b>Main engine:</b> '+(S.big.engine?esc(S.big.engine):'<span class="miss">none</span>')+'</p>';
+  h+='<div class="ans">'+(S.big.why.trim()?esc(S.big.why.trim()):'<span class="miss">No explanation written.</span>')+'</div>';
+  return h;
+}
+function checkSummary(id){
+  var ans=S.checks[id]||[];var c=CHECKS[id];
+  var done=ans.filter(function(x){return x!=null;}).length;var right=ans.filter(function(x,i){return x===c[i].a;}).length;
+  var h='<p><b>Quick check:</b> '+done+' of '+c.length+' answered, '+right+' correct on first try.';
+  if(done<c.length)h+=' <span class="miss">Not finished.</span>';
+  return h+'</p>';
+}
+function buildReport(){
+  $('honor').checked=!!S.honor;
+  var st='';
+  st+='<div class="'+(S.name&&S.block?'ok':'')+'">Name and block</div>';
+  st+='<div class="'+(labDone('engine')?'ok':'')+'">Engine Room check</div>';
+  LABS.forEach(function(id){st+='<div class="'+(labDone(id)?'ok':'')+'">'+esc(NAMES[id])+' lab (2 logs + check)</div>';});
+  st+='<div class="'+(wrapDone()?'ok':'')+'">Wrap-Up (6 chains + 6 explanations + Michigan)</div>';
+  st+='<div class="'+(S.honor?'ok':'')+'">Honor statement</div>';
+  $('statusGrid').innerHTML=st;
+  $('reportFrame').innerHTML=reportHTML();
+}
+function reportDoc(){
+  var css='body{font-family:Georgia,"Segoe UI",serif;max-width:800px;margin:30px auto;padding:0 20px;color:#1b2435;line-height:1.5}h1,h2,h3{color:#0d2b5e}table{width:100%;border-collapse:collapse;font-size:.9rem;margin:6px 0 12px}th,td{border:1px solid #c9d2e3;padding:5px 8px;text-align:left}.ans{background:#f6f8fc;border:1px solid #c9d2e3;border-radius:8px;padding:10px 12px;white-space:pre-wrap;margin:6px 0 14px}.chip{display:inline-block;background:#e3f2fd;border-radius:999px;padding:2px 10px;font-size:.85rem;margin:2px}.miss{color:#b71c1c;font-weight:700}';
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Storm Report - '+esc(S.name||'student')+'</title><style>'+css+'</style></head><body>'+reportHTML()+'</body></html>';
+}
+function reportText(){
+  var tmp=document.createElement('div');tmp.innerHTML=reportHTML().replace(/<\/(h1|h2|h3|p|tr|div)>/g,'$&\n').replace(/<br>/g,'\n').replace(/<\/t[dh]>/g,' | ');
+  return tmp.textContent.replace(/\n{3,}/g,'\n\n').trim();
+}
+$('btnDownload').addEventListener('click',function(){
+  buildReport();
+  var blob=new Blob([reportDoc()],{type:'text/html'});var a=document.createElement('a');
+  var nm=(S.name||'student').replace(/[^a-z0-9]+/gi,'_');
+  a.href=URL.createObjectURL(blob);a.download='Day17_Storm_Report_'+nm+(S.block?'_'+S.block:'')+'.html';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},500);
+});
+$('btnPrint').addEventListener('click',function(){buildReport();window.print();});
+$('btnCopy').addEventListener('click',function(){
+  buildReport();var txt=reportText();
+  function ok(){$('btnCopy').textContent='Copied';setTimeout(function(){$('btnCopy').textContent='Copy report as text';},1500);}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,function(){fallback();});}else fallback();
+  function fallback(){var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');ok();}catch(e){}ta.remove();}
+});
+$('btnClear').addEventListener('click',function(){
+  if(!confirm('Erase all of your work in this activity and start over?'))return;
+  try{localStorage.removeItem(KEY);}catch(e){}location.reload();
+});
+
+updateDots();
+})();
+</script>
+</body>
+</html>
